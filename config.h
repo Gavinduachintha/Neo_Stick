@@ -16,3 +16,5 @@
 #define AMBER       0xFD20   // Amber
 #define CYAN        0x5FBC   // Mint / cyan-mint
 #define DIM_GREEN   0x2E76   // Dim mint
+
+#define WHITE       0xFFFF

@@ -2,6 +2,7 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_ST7789.h>
 #include "config.h"
+#include <WiFi.h>
 
 // =====================================================
 // TFT PINS — XIAO ESP32-S3
@@ -14,6 +15,11 @@
 
 // Button pin (adjust to your actual button pin)
 #define BTN_PIN  1
+#define SELECT_PIN 2
+
+//Wifi credentials
+char SSID[] = "localhost11g";
+char PASS[] = "Lagare@123";
 
 SPIClass mySPI(FSPI);
 
@@ -46,9 +52,64 @@ MenuItem menuItems[] = {
 const int menuItemCount = sizeof(menuItems) / sizeof(menuItems[0]);
 int currentMenuItem = 0;
 bool buttonPressed = false;
+bool selectPressed = false;
 unsigned long lastButtonPress = 0;
+unsigned long lastSelectPress = 0;
 const unsigned long debounceDelay = 200;
+bool flashlightActive = false;
 
+
+//Menu Items
+
+void litFlash(){
+    if (!flashlightActive) {
+        tft.fillScreen(WHITE);
+        flashlightActive = true;
+        Serial.println("Flashlight ON");
+    } else {
+        // Turn off flashlight and return to menu
+        flashlightActive = false;
+        drawHome();
+        drawCenteredMenuItem(currentMenuItem);
+        Serial.println("Flashlight OFF");
+    }
+}
+
+void connectWIFI(){
+    WiFi.begin(SSID,PASS);
+    Serial.println("Connecting to wifi....");
+    while(WiFi.status() != WL_CONNECTED){
+        Serial.print(".");
+        delay(1000);
+    }
+    Serial.print("IP: ");
+    Serial.println(WiFi.localIP());
+}
+
+//-----------------------------------------------------------------
+
+void executeMenuItem(int index) {
+    switch(index) {
+        case 0: // FLASHER
+            litFlash();
+            break;
+        case 1: // WIFI
+            Serial.println("WIFI selected - Not implemented yet");
+            break;
+        case 2: // BLE
+            Serial.println("BLE selected - Not implemented yet");
+            break;
+        case 3: // SETTINGS
+            Serial.println("SETTINGS selected - Not implemented yet");
+            break;
+        case 4: // SYSTEM
+            Serial.println("SYSTEM selected - Not implemented yet");
+            break;
+        case 5: // ABOUT
+            Serial.println("ABOUT selected - Not implemented yet");
+            break;
+    }
+}
 
 
 // =====================================================
@@ -147,6 +208,25 @@ void bootAnimation() {
 
 
 // =====================================================
+// WIFI INDICATOR
+// =====================================================
+
+void drawWifiIcon(int x, int y, uint16_t color) {
+    // Draw WiFi signal icon (full signal)
+    // Base dot
+    tft.fillCircle(x, y + 6, 1, color);
+    
+    // First arc (close)
+    tft.drawLine(x - 2, y + 3, x - 3, y + 2, color);
+    tft.drawLine(x + 2, y + 3, x + 3, y + 2, color);
+    
+    // Second arc (far)
+    tft.drawLine(x - 4, y + 1, x - 5, y, color);
+    tft.drawLine(x + 4, y + 1, x + 5, y, color);
+}
+
+
+// =====================================================
 // HOME SCREEN (240 × 135)
 // =====================================================
 
@@ -155,17 +235,18 @@ void drawHome() {
 
     // Header
     tft.setTextSize(1);
-    tft.setTextColor(GREEN);
-    tft.setCursor(4, 3);
-    tft.print("GAVI OS");
-
     tft.setTextColor(GRAY);
-    tft.setCursor(60, 3);
-    tft.print("// CARDPUTER");
+    tft.setCursor(4, 3);
+    tft.print("// NEOSTICK");
+
+    
 
     tft.setTextColor(DIM_GREEN);
     tft.setCursor(175, 3);
     tft.print("S3");
+
+    // WiFi indicator (top right)
+    drawWifiIcon(228, 4, GREEN);
 
     tft.drawFastHLine(4, 14, 232, DARK_GRAY);
 
@@ -293,6 +374,7 @@ void setup() {
 
     // Setup button pin
     pinMode(BTN_PIN, INPUT_PULLUP);
+    pinMode(SELECT_PIN,INPUT_PULLUP);
 
     mySPI.begin(
         TFT_SCLK,
@@ -323,48 +405,60 @@ void setup() {
 // =====================================================
 
 void loop() {
-    // Read button state (active LOW with pull-up)
+    // Read button states (active LOW with pull-up)
     bool buttonState = (digitalRead(BTN_PIN) == LOW);
-    if (digitalRead(BTN_PIN) == LOW) {
-        Serial.println("PRESSED");
-    } else {
-        Serial.println("RELEASED");
-    }
-
-    delay(100);
+    bool selectState = (digitalRead(SELECT_PIN) == LOW);
     
-    // Button press detection with debounce
+    // Navigation button - cycle through menu items
     if (buttonState && !buttonPressed && (millis() - lastButtonPress > debounceDelay)) {
         buttonPressed = true;
         lastButtonPress = millis();
         
-        // Move to next menu item
-        currentMenuItem++;
-        if (currentMenuItem >= menuItemCount) {
-            currentMenuItem = 0; // Wrap around to first item
+        // Only navigate if not in flashlight mode
+        if (!flashlightActive) {
+            // Move to next menu item
+            currentMenuItem++;
+            if (currentMenuItem >= menuItemCount) {
+                currentMenuItem = 0; // Wrap around to first item
+            }
+            
+            // Update display
+            drawCenteredMenuItem(currentMenuItem);
+            
+            // Update footer counter
+            tft.fillRect(90, 126, 50, 8, BG);
+            tft.setTextSize(1);
+            tft.setTextColor(CYAN);
+            tft.setCursor(90, 126);
+            tft.print("[");
+            tft.print(currentMenuItem + 1);
+            tft.print("/");
+            tft.print(menuItemCount);
+            tft.print("]");
+            
+            Serial.print("Menu item: ");
+            Serial.println(menuItems[currentMenuItem].name);
         }
-        
-        // Update display
-        drawCenteredMenuItem(currentMenuItem);
-        
-        // Update footer counter
-        tft.fillRect(90, 126, 50, 8, BG);
-        tft.setTextSize(1);
-        tft.setTextColor(CYAN);
-        tft.setCursor(90, 126);
-        tft.print("[");
-        tft.print(currentMenuItem + 1);
-        tft.print("/");
-        tft.print(menuItemCount);
-        tft.print("]");
-        
-        Serial.print("Menu item: ");
-        Serial.println(menuItems[currentMenuItem].name);
     }
     
-    // Reset button state when released
+    // Select button - execute current menu item action
+    if (selectState && !selectPressed && (millis() - lastSelectPress > debounceDelay)) {
+        selectPressed = true;
+        lastSelectPress = millis();
+        
+        Serial.print("SELECT pressed on: ");
+        Serial.println(menuItems[currentMenuItem].name);
+        
+        // Execute the action for current menu item
+        executeMenuItem(currentMenuItem);
+    }
+    
+    // Reset button states when released
     if (!buttonState) {
         buttonPressed = false;
+    }
+    if (!selectState) {
+        selectPressed = false;
     }
     
     delay(10); // Small delay to prevent excessive polling
