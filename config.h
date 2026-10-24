@@ -1,6 +1,21 @@
 #pragma once
 
 // =====================================================
+// IDENTITY
+// =====================================================
+
+#define DEVICE_NAME "NEOSTICK"
+#define FW_VERSION  "v0.1"
+
+// =====================================================
+// CLOCK — synced over NTP once WiFi is linked
+// =====================================================
+
+#define TZ_INFO      "IST-5:30"        // POSIX TZ string (Asia/Colombo / Kolkata)
+#define NTP_SERVER_1 "pool.ntp.org"
+#define NTP_SERVER_2 "time.google.com"
+
+// =====================================================
 // COLOR THEME — DARK MINT
 // =====================================================
 
@@ -16,5 +31,3 @@
 #define AMBER       0xFD20   // Amber
 #define CYAN        0x5FBC   // Mint / cyan-mint
 #define DIM_GREEN   0x2E76   // Dim mint
-
-#define WHITE       0xFFFF
