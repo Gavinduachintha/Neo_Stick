@@ -53,6 +53,8 @@ void enterDeepSleep() {
     delay(350);
     tft.enableDisplay(false);
 
+    stopPortal();
+    stopPacketMonitor();
     WiFi.disconnect(true);
     WiFi.mode(WIFI_OFF);
     if (BLEDevice::getInitialized()) {

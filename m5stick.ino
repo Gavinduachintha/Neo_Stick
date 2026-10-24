@@ -25,12 +25,7 @@
 #define SELECT_PIN 2
 #define POWER_PIN 3
 
-// Seed credentials: copied into NVS on first boot, then NVS is the source of truth.
-// You can blank these out once the device has stored them.
-const char SEED_SSID[] = "localhost11g";
-const char SEED_PASS[] = "Lagare@123";
-
-// Saved networks (persisted in NVS namespace "wifi")
+// Saved networks (persisted in NVS namespace "wifi", edited from the setup AP)
 const int SAVED_MAX = 4;
 struct SavedNet {
     char ssid[33];
@@ -103,6 +98,8 @@ enum Screen : uint8_t {
     SCREEN_WIFI_DETAIL,
     SCREEN_WIFI_CHAN,
     SCREEN_WIFI_STATUS,
+    SCREEN_WIFI_PORTAL,
+    SCREEN_WIFI_PKTS,
     SCREEN_BLE_MENU,
     SCREEN_BLE_SCAN,
     SCREEN_TIMER_MENU,
@@ -120,7 +117,7 @@ Screen screenBeforeLock = SCREEN_MENU;
 unsigned long lastLockTick = 0;
 int lockShownMinute = -1;
 
-const char* wifiMenuNames[] = {"CONNECT WIFI", "LINK INFO", "SHOW WIFI", "CHANNELS", "BACK"};
+const char* wifiMenuNames[] = {"CONNECT WIFI", "LINK INFO", "SHOW WIFI", "CHANNELS", "SETUP", "PACKETS", "BACK"};
 const int wifiMenuCount = sizeof(wifiMenuNames) / sizeof(wifiMenuNames[0]);
 int wifiMenuIndex = 0;
 
@@ -560,6 +557,12 @@ void execWifiMenuItem() {
         case 3:
             showChannels();
             break;
+        case 4:
+            startPortal();
+            break;
+        case 5:
+            startPacketMonitor();
+            break;
         default:
             leaveWifiMenu();
             break;
@@ -622,9 +625,6 @@ void setup() {
     tft.fillScreen(BG);
 
     loadSavedNets();
-    if (savedCount == 0 && SEED_SSID[0] != '\0') {
-        addSavedNet(SEED_SSID, SEED_PASS);   // one-time migration of the hard-coded pair
-    }
 
     if (esp_reset_reason() == ESP_RST_DEEPSLEEP) {
         tft.setTextSize(2);
@@ -670,6 +670,8 @@ void handleNext() {
         showChannels();
     } else if (screen == SCREEN_WIFI_STATUS) {
         showWifiStatus();
+    } else if (screen == SCREEN_WIFI_PKTS) {
+        packetNext();
     } else if (screen == SCREEN_BLE_SCAN && scanCount > SCAN_PAGE) {
         int pages = (scanCount + SCAN_PAGE - 1) / SCAN_PAGE;
         scanPage = (scanPage + 1) % pages;
@@ -707,6 +709,14 @@ void handleSelect() {
     } else if (screen == SCREEN_WIFI_CHAN || screen == SCREEN_WIFI_STATUS) {
         screen = SCREEN_WIFI_MENU;
         drawWifiMiniMenu(true);
+    } else if (screen == SCREEN_WIFI_PORTAL) {
+        stopPortal();
+        screen = SCREEN_WIFI_MENU;
+        drawWifiMiniMenu(true);
+    } else if (screen == SCREEN_WIFI_PKTS) {
+        stopPacketMonitor();
+        screen = SCREEN_WIFI_MENU;
+        drawWifiMiniMenu(true);
     } else if (screen == SCREEN_BLE_MENU) {
         execBleMenuItem();
     } else if (screen == SCREEN_BLE_SCAN) {
@@ -731,6 +741,8 @@ void handleSelect() {
 void screenTick() {
     if (screen == SCREEN_TIMER_RUN) timerTick();
     else if (screen == SCREEN_WIFI_STATUS) wifiStatusTick();
+    else if (screen == SCREEN_WIFI_PORTAL) portalTick();
+    else if (screen == SCREEN_WIFI_PKTS) packetTick();
     else if (screen == SCREEN_SYSTEM) systemTick();
 }
 

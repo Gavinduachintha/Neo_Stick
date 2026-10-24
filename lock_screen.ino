@@ -195,6 +195,12 @@ void redrawScreen(Screen s) {
         case SCREEN_WIFI_STATUS:
             showWifiStatus();
             break;
+        case SCREEN_WIFI_PORTAL:
+            drawPortal(true);
+            break;
+        case SCREEN_WIFI_PKTS:
+            drawPacketPlot(true);
+            break;
         case SCREEN_TIMER_MENU:
             drawTimerMenu(true);
             break;

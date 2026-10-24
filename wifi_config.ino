@@ -61,6 +61,14 @@ void addSavedNet(const char* ssid, const char* pass) {
     storeSavedNets();
 }
 
+void removeSavedNet(int idx) {
+    if (idx < 0 || idx >= savedCount) return;
+    for (int i = idx; i < savedCount - 1; i++) savedNets[i] = savedNets[i + 1];
+    savedCount--;
+    memset(&savedNets[savedCount], 0, sizeof(SavedNet));
+    storeSavedNets();
+}
+
 //-----------------------------------------------------------------
 // CONNECT
 //-----------------------------------------------------------------
@@ -162,15 +170,15 @@ void connectWIFI() {
 //-----------------------------------------------------------------
 
 void drawWifiMiniMenu(bool full) {
-    uint16_t accents[] = {GREEN, GREEN, GREEN, AMBER, GRAY};
-    const char* metas[] = {wifiConnected ? "ON" : "OFF", nullptr, nullptr, nullptr, nullptr};
+    uint16_t accents[] = {GREEN, GREEN, GREEN, AMBER, CYAN, AMBER, GRAY};
+    const char* metas[] = {wifiConnected ? "ON" : "OFF", nullptr, nullptr, nullptr, nullptr, nullptr, nullptr};
 
     if (full) {
         drawShell("WIFI", "NEXT", "OPEN", wifiMenuIndex, wifiMenuCount);
     } else {
         drawFooterCount(wifiMenuIndex, wifiMenuCount);
     }
-    drawMenuList(wifiMenuNames, accents, metas, wifiMenuCount, wifiMenuIndex, 16);
+    drawMenuList(wifiMenuNames, accents, metas, wifiMenuCount, wifiMenuIndex, 13);
 }
 
 void enterWifiMenu() {
