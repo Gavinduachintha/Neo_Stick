@@ -5,6 +5,10 @@
 #include <WiFi.h>
 #include <BLEDevice.h>
 #include <Preferences.h>
+#include <esp_sleep.h>
+#include <esp_system.h>
+#include <esp_mac.h>
+#include <driver/rtc_io.h>
 #include "vendors.h"
 
 // =====================================================
@@ -59,6 +63,7 @@ MenuItem menuItems[] = {
     {"FLASHER",  "WHITE TORCH",   CYAN},
     {"WIFI",     "2.4 GHZ LINK",  GREEN},
     {"BLE",      "SCAN / BEACON", AMBER},
+    {"TIMER",    "LAP / COUNTDOWN", CYAN},
     {"SETTINGS", "DEVICE SETUP",  WHITE},
     {"SYSTEM",   "DIAGNOSTICS",   DIM_GREEN},
     {"ABOUT",    "BUILD INFO",    GRAY}
@@ -67,7 +72,6 @@ MenuItem menuItems[] = {
 const int menuItemCount = sizeof(menuItems) / sizeof(menuItems[0]);
 int currentMenuItem = 0;
 bool buttonPressed = false;
-bool selectPressed = false;
 unsigned long lastButtonPress = 0;
 unsigned long lastSelectPress = 0;
 const unsigned long debounceDelay = 200;
@@ -75,6 +79,20 @@ bool wifiConnected = false;
 bool powerPressed = false;
 unsigned long lastPowerPress = 0;
 unsigned long powerDebounceDelay = 200;
+
+// Hold SEL this long to deep-sleep. Short press still selects.
+bool selDown = false;
+bool selLongFired = false;
+unsigned long selDownAt = 0;
+const unsigned long longPressMs = 800;
+
+// Idle clock (lock screen) and auto-sleep, persisted from Settings.
+unsigned long lastActivity = 0;
+uint8_t brightnessPct = 100;
+uint8_t sleepIndex = 0;
+uint8_t saverIndex = 2;     // default 30s screensaver
+int8_t bootTool = -1;       // -1 = home
+uint8_t rotFlip = 0;
 
 enum Screen : uint8_t {
     SCREEN_MENU,
@@ -84,8 +102,14 @@ enum Screen : uint8_t {
     SCREEN_WIFI_SCAN,
     SCREEN_WIFI_DETAIL,
     SCREEN_WIFI_CHAN,
+    SCREEN_WIFI_STATUS,
     SCREEN_BLE_MENU,
-    SCREEN_BLE_SCAN
+    SCREEN_BLE_SCAN,
+    SCREEN_TIMER_MENU,
+    SCREEN_TIMER_SETUP,
+    SCREEN_TIMER_RUN,
+    SCREEN_SETTINGS,
+    SCREEN_SYSTEM
 };
 
 Screen screen = SCREEN_MENU;
@@ -96,7 +120,7 @@ Screen screenBeforeLock = SCREEN_MENU;
 unsigned long lastLockTick = 0;
 int lockShownMinute = -1;
 
-const char* wifiMenuNames[] = {"CONNECT WIFI", "SHOW WIFI", "CHANNELS", "BACK"};
+const char* wifiMenuNames[] = {"CONNECT WIFI", "LINK INFO", "SHOW WIFI", "CHANNELS", "BACK"};
 const int wifiMenuCount = sizeof(wifiMenuNames) / sizeof(wifiMenuNames[0]);
 int wifiMenuIndex = 0;
 
@@ -307,7 +331,7 @@ void drawCenteredNote(const char* title, const char* detail, uint16_t color) {
 const int HOME_LIST_X = 6;
 const int HOME_LIST_Y = 18;
 const int HOME_LIST_W = 104;
-const int HOME_ROW_H  = 16;
+const int HOME_ROW_H  = 14;
 
 const int HOME_CARD_X = 116;
 const int HOME_CARD_Y = 18;
@@ -367,11 +391,18 @@ void drawHomeCard() {
             statusColor = bleBeacon ? GREEN : GRAY;
             break;
         case 3:
+            status = timerBusy() ? "RUNNING" : "READY";
+            statusColor = timerBusy() ? GREEN : GRAY;
+            break;
         case 4:
-            status = "COMING SOON";
-            statusColor = AMBER;
+            status = settingsBlurb();
+            statusColor = (sleepIndex == 0) ? GRAY : AMBER;
             break;
         case 5:
+            status = "LIVE";
+            statusColor = DIM_GREEN;
+            break;
+        case 6:
             status = FW_VERSION;
             statusColor = DIM_GREEN;
             break;
@@ -514,18 +545,19 @@ void execWifiMenuItem() {
         case 0:
             if (WiFi.status() == WL_CONNECTED) {
                 wifiConnected = true;
-                showWifiConnected();
-                delay(1800);
-                drawWifiMiniMenu(true);
+                showWifiStatus();
             } else {
                 wifiConnected = false;
                 connectWIFI();
             }
             break;
         case 1:
-            showNearbyWifi();
+            showWifiStatus();
             break;
         case 2:
+            showNearbyWifi();
+            break;
+        case 3:
             showChannels();
             break;
         default:
@@ -548,10 +580,15 @@ void executeMenuItem(int index) {
             enterBleMenu();
             break;
         case 3:
+            enterTimerMenu();
+            break;
         case 4:
-            showSoon(menuItems[index].name);
+            enterSettings();
             break;
         case 5:
+            enterSystem();
+            break;
+        case 6:
             about();
             break;
     }
@@ -578,8 +615,10 @@ void setup() {
     );
 
     tft.init(135, 240);
-    tft.setRotation(1);
     tft.setTextWrap(false);
+    loadSettings();
+    tft.setRotation(rotFlip ? 3 : 1);
+    initBacklight();
     tft.fillScreen(BG);
 
     loadSavedNets();
@@ -587,9 +626,112 @@ void setup() {
         addSavedNet(SEED_SSID, SEED_PASS);   // one-time migration of the hard-coded pair
     }
 
-    drawBootLogo();
-    bootAnimation();
+    if (esp_reset_reason() == ESP_RST_DEEPSLEEP) {
+        tft.setTextSize(2);
+        tft.setTextColor(GREEN);
+        tft.setCursor(96, 56);
+        tft.print("WAKE");
+        delay(250);
+    } else {
+        drawBootLogo();
+        bootAnimation();
+    }
     drawMainMenu(true);
+    touchActivity();
+    if (bootTool >= 0 && bootTool < menuItemCount) {
+        currentMenuItem = bootTool;
+        executeMenuItem(bootTool);
+    }
+}
+
+// =====================================================
+// INPUT
+// =====================================================
+
+void handleNext() {
+    if (screen == SCREEN_MENU) {
+        currentMenuItem++;
+        if (currentMenuItem >= menuItemCount) currentMenuItem = 0;
+        drawMainMenu(false);
+    } else if (screen == SCREEN_WIFI_MENU) {
+        wifiMenuIndex = (wifiMenuIndex + 1) % wifiMenuCount;
+        drawWifiMiniMenu(false);
+    } else if (screen == SCREEN_BLE_MENU) {
+        bleMenuIndex = (bleMenuIndex + 1) % bleMenuCount;
+        drawBleMiniMenu(false);
+    } else if (screen == SCREEN_WIFI_SCAN) {
+        scanCursor = (scanCursor + 1) % (scanCount + 1);
+        scanPage = scanCursor / SCAN_PAGE;
+        drawWifiResults();
+    } else if (screen == SCREEN_WIFI_DETAIL) {
+        screen = SCREEN_WIFI_SCAN;
+        drawWifiResults();
+    } else if (screen == SCREEN_WIFI_CHAN) {
+        showChannels();
+    } else if (screen == SCREEN_WIFI_STATUS) {
+        showWifiStatus();
+    } else if (screen == SCREEN_BLE_SCAN && scanCount > SCAN_PAGE) {
+        int pages = (scanCount + SCAN_PAGE - 1) / SCAN_PAGE;
+        scanPage = (scanPage + 1) % pages;
+        drawBleResults();
+    } else if (screen == SCREEN_TIMER_MENU) {
+        timerMenuNext();
+    } else if (screen == SCREEN_TIMER_SETUP) {
+        timerSetupNext();
+    } else if (screen == SCREEN_TIMER_RUN) {
+        timerRunNext();
+    } else if (screen == SCREEN_SETTINGS) {
+        settingsNext();
+    } else if (screen == SCREEN_SYSTEM) {
+        drawSystemRows();
+    }
+}
+
+void handleSelect() {
+    if (screen == SCREEN_ABOUT) {
+        screen = SCREEN_MENU;
+        drawMainMenu(true);
+    } else if (screen == SCREEN_FLASH) {
+        litFlash();
+    } else if (screen == SCREEN_WIFI_MENU) {
+        execWifiMenuItem();
+    } else if (screen == SCREEN_WIFI_SCAN) {
+        if (scanCursor >= scanCount) {
+            screen = SCREEN_WIFI_MENU;
+            drawWifiMiniMenu(true);
+        } else {
+            showWifiDetail();
+        }
+    } else if (screen == SCREEN_WIFI_DETAIL) {
+        joinFromDetail();
+    } else if (screen == SCREEN_WIFI_CHAN || screen == SCREEN_WIFI_STATUS) {
+        screen = SCREEN_WIFI_MENU;
+        drawWifiMiniMenu(true);
+    } else if (screen == SCREEN_BLE_MENU) {
+        execBleMenuItem();
+    } else if (screen == SCREEN_BLE_SCAN) {
+        screen = SCREEN_BLE_MENU;
+        drawBleMiniMenu(true);
+    } else if (screen == SCREEN_TIMER_MENU) {
+        timerMenuSelect();
+    } else if (screen == SCREEN_TIMER_SETUP) {
+        timerSetupSelect();
+    } else if (screen == SCREEN_TIMER_RUN) {
+        timerRunSelect();
+    } else if (screen == SCREEN_SETTINGS) {
+        settingsSelect();
+    } else if (screen == SCREEN_SYSTEM) {
+        screen = SCREEN_MENU;
+        drawMainMenu(true);
+    } else {
+        executeMenuItem(currentMenuItem);
+    }
+}
+
+void screenTick() {
+    if (screen == SCREEN_TIMER_RUN) timerTick();
+    else if (screen == SCREEN_WIFI_STATUS) wifiStatusTick();
+    else if (screen == SCREEN_SYSTEM) systemTick();
 }
 
 // =====================================================
@@ -601,25 +743,37 @@ void loop() {
     bool selectState = (digitalRead(SELECT_PIN) == LOW);
     bool onOffState = (digitalRead(POWER_PIN) == LOW);
 
-    // Lock screen: any fresh press unlocks, otherwise just tick the clock.
-    if (locked) {
-        bool nextEdge  = buttonState && !buttonPressed;
-        bool selEdge   = selectState && !selectPressed;
-        bool powerEdge = onOffState && !powerPressed;
+    // Hold SEL to sleep. Works on every screen, including the lock screen.
+    if (selectState) {
+        if (!selDown) {
+            selDown = true;
+            selDownAt = millis();
+            selLongFired = false;
+        } else if (!selLongFired && millis() - selDownAt >= longPressMs) {
+            selLongFired = true;
+            enterDeepSleep();
+        }
+    }
+    bool selShort = false;
+    if (!selectState && selDown) {
+        selDown = false;
+        selShort = !selLongFired && (millis() - lastSelectPress > debounceDelay);
+    }
 
-        if ((nextEdge || selEdge || powerEdge) && (millis() - lastPowerPress > powerDebounceDelay)) {
-            // Swallow this press so it doesn't also act on the restored screen
+    if (locked) {
+        bool nextEdge = buttonState && !buttonPressed && (millis() - lastButtonPress > debounceDelay);
+        bool powerEdge = onOffState && !powerPressed && (millis() - lastPowerPress > powerDebounceDelay);
+        if (nextEdge || selShort || powerEdge) {
             buttonPressed = buttonState;
-            selectPressed = selectState;
             powerPressed = onOffState;
             lastButtonPress = lastSelectPress = lastPowerPress = millis();
+            touchActivity();
             unlockScreen();
         } else {
             lockScreenTick();
+            if (!timerBusy()) idleTick();
         }
-
         if (!buttonState) buttonPressed = false;
-        if (!selectState) selectPressed = false;
         if (!onOffState) powerPressed = false;
         delay(10);
         return;
@@ -628,96 +782,27 @@ void loop() {
     if (buttonState && !buttonPressed && (millis() - lastButtonPress > debounceDelay)) {
         buttonPressed = true;
         lastButtonPress = millis();
-
-        if (screen == SCREEN_MENU) {
-            currentMenuItem++;
-            if (currentMenuItem >= menuItemCount) {
-                currentMenuItem = 0;
-            }
-            drawMainMenu(false);
-            Serial.print("Menu item: ");
-            Serial.println(menuItems[currentMenuItem].name);
-        } else if (screen == SCREEN_WIFI_MENU) {
-            wifiMenuIndex++;
-            if (wifiMenuIndex >= wifiMenuCount) {
-                wifiMenuIndex = 0;
-            }
-            drawWifiMiniMenu(false);
-        } else if (screen == SCREEN_BLE_MENU) {
-            bleMenuIndex++;
-            if (bleMenuIndex >= bleMenuCount) {
-                bleMenuIndex = 0;
-            }
-            drawBleMiniMenu(false);
-        } else if (screen == SCREEN_WIFI_SCAN) {
-            // Cursor walks every row plus the trailing BACK row, paging as needed
-            scanCursor = (scanCursor + 1) % (scanCount + 1);
-            scanPage = scanCursor / SCAN_PAGE;
-            drawWifiResults();
-        } else if (screen == SCREEN_WIFI_DETAIL) {
-            screen = SCREEN_WIFI_SCAN;
-            drawWifiResults();
-        } else if (screen == SCREEN_WIFI_CHAN) {
-            showChannels();
-        } else if (screen == SCREEN_BLE_SCAN && scanCount > SCAN_PAGE) {
-            int pages = (scanCount + SCAN_PAGE - 1) / SCAN_PAGE;
-            scanPage = (scanPage + 1) % pages;
-            drawBleResults();
-        }
+        touchActivity();
+        handleNext();
     }
 
-    if (selectState && !selectPressed && (millis() - lastSelectPress > debounceDelay)) {
-        selectPressed = true;
+    if (selShort) {
         lastSelectPress = millis();
-
-        if (screen == SCREEN_ABOUT || screen == SCREEN_FLASH) {
-            if (screen == SCREEN_ABOUT) {
-                screen = SCREEN_MENU;
-                drawMainMenu(true);
-                Serial.println("Exiting about screen");
-            } else {
-                litFlash();
-            }
-        } else if (screen == SCREEN_WIFI_MENU) {
-            execWifiMenuItem();
-        } else if (screen == SCREEN_WIFI_SCAN) {
-            if (scanCursor >= scanCount) {
-                screen = SCREEN_WIFI_MENU;
-                drawWifiMiniMenu(true);
-            } else {
-                showWifiDetail();
-            }
-        } else if (screen == SCREEN_WIFI_DETAIL) {
-            joinFromDetail();
-        } else if (screen == SCREEN_WIFI_CHAN) {
-            screen = SCREEN_WIFI_MENU;
-            drawWifiMiniMenu(true);
-        } else if (screen == SCREEN_BLE_MENU) {
-            execBleMenuItem();
-        } else if (screen == SCREEN_BLE_SCAN) {
-            screen = SCREEN_BLE_MENU;
-            drawBleMiniMenu(true);
-        } else {
-            Serial.print("SELECT pressed on: ");
-            Serial.println(menuItems[currentMenuItem].name);
-            executeMenuItem(currentMenuItem);
-        }
+        touchActivity();
+        handleSelect();
     }
 
-    if (!buttonState) {
-        buttonPressed = false;
-    }
-    if (!selectState) {
-        selectPressed = false;
-    }
     if (onOffState && !powerPressed && (millis() - lastPowerPress > powerDebounceDelay)) {
         powerPressed = true;
         lastPowerPress = millis();
+        touchActivity();
         lockScreen();
     }
-    if (!onOffState) {
-        powerPressed = false;
-    }
 
+    if (!buttonState) buttonPressed = false;
+    if (!onOffState) powerPressed = false;
+
+    screenTick();
+    idleTick();
     delay(10);
 }

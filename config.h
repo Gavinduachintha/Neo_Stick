@@ -15,6 +15,10 @@
 #define NTP_SERVER_1 "pool.ntp.org"
 #define NTP_SERVER_2 "time.google.com"
 
+// Backlight PWM. -1 if the panel backlight is tied to VCC.
+// Use a free GPIO that is not a strapping pin (avoid 0, 3, 45, 46).
+#define BL_PIN       -1
+
 // =====================================================
 // COLOR THEME — DARK MINT
 // =====================================================

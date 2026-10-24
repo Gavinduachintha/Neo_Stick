@@ -108,8 +108,7 @@ bool joinNetwork(const char* ssid, const char* pass) {
         Serial.print("Connected! IP: ");
         Serial.println(WiFi.localIP());
         syncClock();
-        showWifiConnected();
-        delay(2200);
+        touchActivity();
         return true;
     }
 
@@ -150,9 +149,12 @@ void connectWIFI() {
         best = savedCount - 1;   // most recently added; may be hidden SSID
     }
 
-    joinNetwork(savedNets[best].ssid, savedNets[best].pass);
-    screen = SCREEN_WIFI_MENU;
-    drawWifiMiniMenu(true);
+    if (joinNetwork(savedNets[best].ssid, savedNets[best].pass)) {
+        showWifiStatus();
+    } else {
+        screen = SCREEN_WIFI_MENU;
+        drawWifiMiniMenu(true);
+    }
 }
 
 //-----------------------------------------------------------------
@@ -160,15 +162,15 @@ void connectWIFI() {
 //-----------------------------------------------------------------
 
 void drawWifiMiniMenu(bool full) {
-    uint16_t accents[] = {GREEN, GREEN, AMBER, GRAY};
-    const char* metas[] = {wifiConnected ? "ON" : "OFF", nullptr, nullptr, nullptr};
+    uint16_t accents[] = {GREEN, GREEN, GREEN, AMBER, GRAY};
+    const char* metas[] = {wifiConnected ? "ON" : "OFF", nullptr, nullptr, nullptr, nullptr};
 
     if (full) {
         drawShell("WIFI", "NEXT", "OPEN", wifiMenuIndex, wifiMenuCount);
     } else {
         drawFooterCount(wifiMenuIndex, wifiMenuCount);
     }
-    drawMenuList(wifiMenuNames, accents, metas, wifiMenuCount, wifiMenuIndex, 20);
+    drawMenuList(wifiMenuNames, accents, metas, wifiMenuCount, wifiMenuIndex, 16);
 }
 
 void enterWifiMenu() {
@@ -531,8 +533,12 @@ void joinFromDetail() {
         }
     }
 
-    screen = SCREEN_WIFI_MENU;
-    drawWifiMiniMenu(true);
+    if (ok) {
+        showWifiStatus();
+    } else {
+        screen = SCREEN_WIFI_MENU;
+        drawWifiMiniMenu(true);
+    }
 }
 
 //-----------------------------------------------------------------
@@ -622,4 +628,88 @@ void showChannels() {
     drawDialog("CHANNELS", AMBER, "SCANNING", "COUNTING ACCESS POINTS", "PER CHANNEL 1-13", -1);
     runWifiScan();
     drawChannelChart();
+}
+
+//-----------------------------------------------------------------
+// LINK STATUS
+//-----------------------------------------------------------------
+
+unsigned long lastStatusTick = 0;
+
+void ipText(char* buf, size_t n, IPAddress ip) {
+    snprintf(buf, n, "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
+}
+
+void showWifiStatus() {
+    screen = SCREEN_WIFI_STATUS;
+    lastStatusTick = millis();
+    drawShell("LINK", "REFRESH", "BACK", 0, 0);
+
+    if (WiFi.status() != WL_CONNECTED) {
+        wifiConnected = false;
+        drawCenteredNote("NO LINK", "CONNECT FIRST", AMBER);
+        return;
+    }
+    wifiConnected = true;
+
+    int x = 16;
+    int y = 18;
+    int w = 208;
+    int h = 98;
+    tft.fillRoundRect(x, y, w, h, 4, PANEL);
+    tft.drawRoundRect(x, y, w, h, 4, GREEN);
+    tft.setTextSize(1);
+
+    char title[20];
+    String ssid = WiFi.SSID();
+    strncpy(title, ssid.c_str(), 19);
+    title[19] = '\0';
+    tft.setTextColor(GREEN);
+    tft.setCursor(x + 10, y + 6);
+    tft.print(title);
+    tft.drawFastHLine(x + 10, y + 18, w - 20, DARK_GRAY);
+
+    char buf[20];
+    int row = y + 24;
+    ipText(buf, sizeof(buf), WiFi.localIP());
+    detailRow(x + 10, row, "IP", buf, WHITE);
+    row += 12;
+    ipText(buf, sizeof(buf), WiFi.gatewayIP());
+    detailRow(x + 10, row, "GATEWAY", buf, WHITE);
+    row += 12;
+    ipText(buf, sizeof(buf), WiFi.dnsIP());
+    detailRow(x + 10, row, "DNS", buf, WHITE);
+    row += 12;
+
+    int rssi = WiFi.RSSI();
+    snprintf(buf, sizeof(buf), "%d DBM", rssi);
+    detailRow(x + 10, row, "SIGNAL", buf, rssiColor(rssi));
+    drawSignalBars(x + 70 + (int)strlen(buf) * 6 + 6, row, rssi);
+    row += 12;
+
+    snprintf(buf, sizeof(buf), "%u", (unsigned)WiFi.channel());
+    detailRow(x + 10, row, "CHANNEL", buf, WHITE);
+    row += 12;
+
+    String mac = WiFi.macAddress();
+    mac.toUpperCase();
+    detailRow(x + 10, row, "MAC", mac.c_str(), DIM_GREEN);
+}
+
+void wifiStatusTick() {
+    if (WiFi.status() != WL_CONNECTED) return;
+    if (millis() - lastStatusTick < 1000) return;
+    lastStatusTick = millis();
+
+    int x = 26;
+    int y = 18 + 24 + 36;
+    int rssi = WiFi.RSSI();
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%d DBM", rssi);
+    tft.fillRect(x + 60, y, 120, 10, PANEL);
+    tft.setTextSize(1);
+    tft.setTextColor(rssiColor(rssi));
+    tft.setCursor(x + 60, y);
+    tft.print(buf);
+    drawSignalBars(x + 60 + (int)strlen(buf) * 6 + 6, y, rssi);
 }

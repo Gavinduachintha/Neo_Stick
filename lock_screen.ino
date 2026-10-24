@@ -192,6 +192,24 @@ void redrawScreen(Screen s) {
         case SCREEN_WIFI_CHAN:
             drawChannelChart();
             break;
+        case SCREEN_WIFI_STATUS:
+            showWifiStatus();
+            break;
+        case SCREEN_TIMER_MENU:
+            drawTimerMenu(true);
+            break;
+        case SCREEN_TIMER_SETUP:
+            drawTimerSetup();
+            break;
+        case SCREEN_TIMER_RUN:
+            drawTimerFace(true);
+            break;
+        case SCREEN_SETTINGS:
+            drawSettings(true);
+            break;
+        case SCREEN_SYSTEM:
+            enterSystem();
+            break;
         case SCREEN_BLE_MENU:
             drawBleMiniMenu(true);
             break;
