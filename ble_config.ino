@@ -2,6 +2,8 @@
 // BLE
 //-----------------------------------------------------------------
 
+extern bool remoteConnected;
+
 void ensureBle() {
     if (!BLEDevice::getInitialized()) {
         BLEDevice::init(DEVICE_NAME);
@@ -28,15 +30,15 @@ void setBeacon(bool on) {
 }
 
 void drawBleMiniMenu(bool full) {
-    uint16_t accents[] = {AMBER, GREEN, GRAY};
-    const char* metas[] = {nullptr, bleBeacon ? "ON" : "OFF", nullptr};
+    uint16_t accents[] = {AMBER, GREEN, CYAN, GRAY};
+    const char* metas[] = {nullptr, bleBeacon ? "ON" : "OFF", remoteConnected ? "ON" : nullptr, nullptr};
 
     if (full) {
         drawShell("BLE", "NEXT", "OPEN", bleMenuIndex, bleMenuCount);
     } else {
         drawFooterCount(bleMenuIndex, bleMenuCount);
     }
-    drawMenuList(bleMenuNames, accents, metas, bleMenuCount, bleMenuIndex, 20);
+    drawMenuList(bleMenuNames, accents, metas, bleMenuCount, bleMenuIndex, 18);
 }
 
 void enterBleMenu() {
@@ -53,6 +55,7 @@ void showNearbyBle() {
     screen = SCREEN_BLE_SCAN;
     scanCount = 0;
     scanPage = 0;
+    scanCursor = 0;
     scanFailed = false;
     drawDialog("BLE", AMBER, "SCANNING", "NEARBY DEVICES", "LISTENING", -1);
 
@@ -75,8 +78,12 @@ void showNearbyBle() {
         int n = found->getCount();
         for (int i = 0; i < n; i++) {
             BLEAdvertisedDevice dev = found->getDevice(i);
-            String label = dev.haveName() ? dev.getName() : dev.getAddress().toString();
-            rememberHit(label.c_str(), dev.getRSSI(), 0, 0, nullptr);
+            BLEAddress found = dev.getAddress();
+            String label = dev.haveName() ? dev.getName() : found.toString();
+            uint8_t addr[6] = {0, 0, 0, 0, 0, 0};
+            uint8_t* native = found.getNative();
+            if (native != nullptr) memcpy(addr, native, 6);
+            rememberHit(label.c_str(), dev.getRSSI(), 0, 0, addr);
         }
         sortHits();
         scan->clearResults();
