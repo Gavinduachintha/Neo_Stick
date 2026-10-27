@@ -102,6 +102,10 @@ enum Screen : uint8_t {
     SCREEN_WIFI_PKTS,
     SCREEN_BLE_MENU,
     SCREEN_BLE_SCAN,
+    SCREEN_BLE_REMOTE_MENU,
+    SCREEN_BLE_REMOTE,
+    SCREEN_WIFI_ACT,
+    SCREEN_WALKER,
     SCREEN_TIMER_MENU,
     SCREEN_TIMER_SETUP,
     SCREEN_TIMER_RUN,
@@ -121,7 +125,7 @@ const char* wifiMenuNames[] = {"CONNECT WIFI", "LINK INFO", "SHOW WIFI", "CHANNE
 const int wifiMenuCount = sizeof(wifiMenuNames) / sizeof(wifiMenuNames[0]);
 int wifiMenuIndex = 0;
 
-const char* bleMenuNames[] = {"SCAN DEVICES", "BEACON", "BACK"};
+const char* bleMenuNames[] = {"SCAN DEVICES", "BEACON", "REMOTE", "BACK"};
 const int bleMenuCount = sizeof(bleMenuNames) / sizeof(bleMenuNames[0]);
 int bleMenuIndex = 0;
 bool bleBeacon = false;
@@ -530,6 +534,9 @@ void execBleMenuItem() {
             delay(1200);
             drawBleMiniMenu(true);
             break;
+        case 2:
+            enterRemoteMenu();
+            break;
         default:
             screen = SCREEN_MENU;
             drawMainMenu(true);
@@ -664,18 +671,25 @@ void handleNext() {
         scanPage = scanCursor / SCAN_PAGE;
         drawWifiResults();
     } else if (screen == SCREEN_WIFI_DETAIL) {
-        screen = SCREEN_WIFI_SCAN;
-        drawWifiResults();
+        openWifiActions();
+    } else if (screen == SCREEN_WALKER) {
+        walkerKick();
+    } else if (screen == SCREEN_WIFI_ACT) {
+        wifiActNext();
     } else if (screen == SCREEN_WIFI_CHAN) {
         showChannels();
     } else if (screen == SCREEN_WIFI_STATUS) {
         showWifiStatus();
     } else if (screen == SCREEN_WIFI_PKTS) {
         packetNext();
-    } else if (screen == SCREEN_BLE_SCAN && scanCount > SCAN_PAGE) {
-        int pages = (scanCount + SCAN_PAGE - 1) / SCAN_PAGE;
-        scanPage = (scanPage + 1) % pages;
+    } else if (screen == SCREEN_BLE_SCAN) {
+        scanCursor = (scanCursor + 1) % (scanCount + 1);
+        scanPage = scanCursor / SCAN_PAGE;
         drawBleResults();
+    } else if (screen == SCREEN_BLE_REMOTE_MENU) {
+        remoteMenuNext();
+    } else if (screen == SCREEN_BLE_REMOTE) {
+        remotePress(true);
     } else if (screen == SCREEN_TIMER_MENU) {
         timerMenuNext();
     } else if (screen == SCREEN_TIMER_SETUP) {
@@ -702,8 +716,12 @@ void handleSelect() {
             screen = SCREEN_WIFI_MENU;
             drawWifiMiniMenu(true);
         } else {
-            showWifiDetail();
+            openWifiActions();
         }
+    } else if (screen == SCREEN_WIFI_ACT) {
+        wifiActSelect();
+    } else if (screen == SCREEN_WALKER) {
+        leaveWalker();
     } else if (screen == SCREEN_WIFI_DETAIL) {
         joinFromDetail();
     } else if (screen == SCREEN_WIFI_CHAN || screen == SCREEN_WIFI_STATUS) {
@@ -720,8 +738,16 @@ void handleSelect() {
     } else if (screen == SCREEN_BLE_MENU) {
         execBleMenuItem();
     } else if (screen == SCREEN_BLE_SCAN) {
-        screen = SCREEN_BLE_MENU;
-        drawBleMiniMenu(true);
+        if (scanCursor >= scanCount || scanFailed) {
+            screen = SCREEN_BLE_MENU;
+            drawBleMiniMenu(true);
+        } else {
+            startWalker(true);
+        }
+    } else if (screen == SCREEN_BLE_REMOTE_MENU) {
+        remoteMenuSelect();
+    } else if (screen == SCREEN_BLE_REMOTE) {
+        remotePress(false);
     } else if (screen == SCREEN_TIMER_MENU) {
         timerMenuSelect();
     } else if (screen == SCREEN_TIMER_SETUP) {
@@ -744,6 +770,8 @@ void screenTick() {
     else if (screen == SCREEN_WIFI_PORTAL) portalTick();
     else if (screen == SCREEN_WIFI_PKTS) packetTick();
     else if (screen == SCREEN_SYSTEM) systemTick();
+    else if (screen == SCREEN_WALKER) walkerTick();
+    else if (screen == SCREEN_BLE_REMOTE || screen == SCREEN_BLE_REMOTE_MENU) remoteTick();
 }
 
 // =====================================================
@@ -808,7 +836,15 @@ void loop() {
         powerPressed = true;
         lastPowerPress = millis();
         touchActivity();
-        lockScreen();
+        if (screen == SCREEN_BLE_REMOTE) {
+            exitRemoteScreen();
+        } else if (screen == SCREEN_BLE_REMOTE_MENU) {
+            stopRemote();
+            screen = SCREEN_BLE_MENU;
+            drawBleMiniMenu(true);
+        } else {
+            lockScreen();
+        }
     }
 
     if (!buttonState) buttonPressed = false;
