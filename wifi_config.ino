@@ -305,25 +305,15 @@ void sortHits() {
 // SCAN RESULT LIST
 //-----------------------------------------------------------------
 
-// wifiMode=true: columns NAME / CH / SEC / bars / dBm, row cursor, trailing BACK row.
-// wifiMode=false (BLE): NAME / bars / dBm, page-by-page.
+// Both lists use a row cursor and a trailing BACK row.
+// wifiMode adds the channel and security columns. BLE uses SEL to walk a device.
 void drawScanResults(const char* page, const char* column, const char* emptyTitle, const char* emptyDetail, bool wifiMode) {
-    int pages = 1;
-    if (wifiMode) {
-        pages = (scanCount + 1 + SCAN_PAGE - 1) / SCAN_PAGE;   // +1 for the BACK row
-        bool onBack = (scanCursor >= scanCount);
-        drawShell(page, "NEXT", onBack ? "BACK" : "INFO", onBack ? scanCount : scanCursor, onBack ? 0 : scanCount);
-    } else {
-        if (scanCount > 0) pages = (scanCount + SCAN_PAGE - 1) / SCAN_PAGE;
-        drawShell(page, "PAGE", "BACK", scanPage, pages);
-    }
+    bool onBack = (scanCursor >= scanCount);
+    const char* sel = onBack ? "BACK" : (wifiMode ? "OPEN" : "WALK");
+    drawShell(page, "NEXT", sel, onBack ? scanCount : scanCursor, onBack ? 0 : scanCount);
 
     if (scanFailed) {
-        drawCenteredNote("SCAN FAILED", "TRY AGAIN", AMBER);
-        return;
-    }
-    if (scanCount == 0 && !wifiMode) {
-        drawCenteredNote(emptyTitle, emptyDetail, AMBER);
+        drawCenteredNote("SCAN FAILED", emptyDetail, AMBER);
         return;
     }
 
@@ -342,22 +332,21 @@ void drawScanResults(const char* page, const char* column, const char* emptyTitl
     tft.drawFastHLine(16, 28, 208, DARK_GRAY);
 
     int start = scanPage * SCAN_PAGE;
-    int rows = wifiMode ? scanCount + 1 : scanCount;
+    int rows = scanCount + 1;
 
     for (int i = 0; i < SCAN_PAGE && (start + i) < rows; i++) {
         int idx = start + i;
         int y = 34 + i * 16;
-        bool on = wifiMode && (idx == scanCursor);
+        bool on = (idx == scanCursor);
 
-        // Trailing BACK row (WiFi only)
-        if (wifiMode && idx == scanCount) {
+        if (idx == scanCount) {
             if (on) {
                 tft.fillRoundRect(10, y - 3, 220, 14, 3, PANEL_HI);
                 tft.fillRect(12, y - 1, 2, 10, GRAY);
             }
             tft.setTextColor(on ? WHITE : GRAY);
             tft.setCursor(18, y);
-            tft.print(scanCount == 0 ? "NO NETWORKS - BACK" : "< BACK");
+            tft.print(scanCount == 0 ? emptyTitle : "< BACK");
             continue;
         }
 
@@ -546,6 +535,54 @@ void joinFromDetail() {
     } else {
         screen = SCREEN_WIFI_MENU;
         drawWifiMiniMenu(true);
+    }
+}
+
+//-----------------------------------------------------------------
+// ROW ACTIONS — details, walk, join
+//-----------------------------------------------------------------
+
+const char* wifiActLabels[4];
+int wifiActCount = 0;
+int wifiActIndex = 0;
+
+void drawWifiActions(bool full) {
+    wifiActCount = 0;
+    wifiActLabels[wifiActCount++] = "DETAILS";
+    wifiActLabels[wifiActCount++] = "WALK";
+    if (detailJoinable()) wifiActLabels[wifiActCount++] = "JOIN";
+    wifiActLabels[wifiActCount++] = "BACK";
+    if (wifiActIndex >= wifiActCount) wifiActIndex = 0;
+
+    uint16_t accents[] = {GREEN, AMBER, GREEN, GRAY};
+    const char* metas[] = {nullptr, nullptr, nullptr, nullptr};
+    if (full) {
+        drawShell("WIFI", "NEXT", "OPEN", wifiActIndex, wifiActCount);
+    } else {
+        drawFooterCount(wifiActIndex, wifiActCount);
+    }
+    drawMenuList(wifiActLabels, accents, metas, wifiActCount, wifiActIndex, 20);
+}
+
+void openWifiActions() {
+    screen = SCREEN_WIFI_ACT;
+    wifiActIndex = 0;
+    drawWifiActions(true);
+}
+
+void wifiActNext() {
+    wifiActIndex = (wifiActIndex + 1) % wifiActCount;
+    drawWifiActions(false);
+}
+
+void wifiActSelect() {
+    const char* item = wifiActLabels[wifiActIndex];
+    if (strcmp(item, "DETAILS") == 0) showWifiDetail();
+    else if (strcmp(item, "WALK") == 0) startWalker(false);
+    else if (strcmp(item, "JOIN") == 0) joinFromDetail();
+    else {
+        screen = SCREEN_WIFI_SCAN;
+        drawWifiResults();
     }
 }
 
