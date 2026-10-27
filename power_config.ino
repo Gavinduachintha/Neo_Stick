@@ -26,7 +26,7 @@ void applyBrightness() {
 // Screensaver first (lock screen clock), then deep sleep if that is armed.
 // Torch and a running timer are left alone.
 void idleTick() {
-    if (screen == SCREEN_FLASH || timerBusy()) return;
+    if (screen == SCREEN_FLASH || screen == SCREEN_BLE_REMOTE || screen == SCREEN_WALKER || timerBusy()) return;
 
     unsigned long idle = millis() - lastActivity;
     unsigned long saver = saverTimeoutMs();
