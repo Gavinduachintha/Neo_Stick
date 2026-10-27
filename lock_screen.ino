@@ -189,6 +189,12 @@ void redrawScreen(Screen s) {
         case SCREEN_WIFI_DETAIL:
             showWifiDetail();
             break;
+        case SCREEN_WIFI_ACT:
+            drawWifiActions(true);
+            break;
+        case SCREEN_WALKER:
+            drawWalker(true);
+            break;
         case SCREEN_WIFI_CHAN:
             drawChannelChart();
             break;
@@ -221,6 +227,12 @@ void redrawScreen(Screen s) {
             break;
         case SCREEN_BLE_SCAN:
             drawBleResults();
+            break;
+        case SCREEN_BLE_REMOTE_MENU:
+            drawRemoteMenu(true);
+            break;
+        case SCREEN_BLE_REMOTE:
+            drawRemote();
             break;
         default:
             drawMainMenu(true);
