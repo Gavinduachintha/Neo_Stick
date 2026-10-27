@@ -28,42 +28,49 @@ void appendEscaped(String &out, const char* s) {
 
 void sendPortalPage() {
     String page;
-    page.reserve(1400);
+    page.reserve(2800);
     page += F("<!DOCTYPE html><html><head><meta name=viewport content=\"width=device-width,initial-scale=1\">"
               "<title>NEOSTICK</title><style>"
-              "body{font-family:sans-serif;background:#000;color:#d7ffe9;margin:0;padding:16px}"
-              "h1{font-size:18px;letter-spacing:.18em;color:#5fbc8a}"
-              "input,button{width:100%;box-sizing:border-box;margin:6px 0;padding:12px;border:0;border-radius:8px;font-size:16px}"
-              "input{background:#102018;color:#fff}"
-              "button{background:#1c6b45;color:#fff;font-weight:700}"
-              "a{color:#5fbc8a}"
-              "small{color:#8aa}"
-              "</style></head><body><h1>NEOSTICK</h1>"
-              "<p>Save a network. The password stays on this device.</p>"
-              "<form method=POST action=/save>"
-              "<input name=ssid maxlength=32 placeholder=Network required>"
-              "<input name=pass maxlength=64 type=password placeholder=Password>"
-              "<button type=submit>SAVE</button></form>");
+              ":root{color-scheme:dark;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;background:#10161b;color:#d7ffe9}"
+              "*{box-sizing:border-box}body{margin:0;min-height:100vh;padding:22px 14px;background:radial-gradient(circle at 50% 0,#27363d,#10161b 52%);display:flex;justify-content:center;align-items:flex-start}"
+              ".device{width:min(100%,390px);margin:0 auto;padding:10px;border:1px solid #52616a;border-radius:28px;background:#202a30;box-shadow:0 18px 45px #050708,inset 0 1px #748087}"
+              ".speaker{width:54px;height:5px;margin:2px auto 9px;border-radius:5px;background:#0b1013;box-shadow:inset 0 1px #465158}"
+              ".screen{padding:18px 16px 16px;border:5px solid #0a0e10;border-radius:17px;background:#07120f;box-shadow:inset 0 0 0 1px #294239,inset 0 0 28px #061b13}"
+              ".top{display:flex;justify-content:space-between;align-items:center;padding-bottom:12px;border-bottom:1px solid #294239;color:#5fbc8a;font-size:12px;letter-spacing:.16em}"
+              ".led{display:inline-block;width:7px;height:7px;margin-right:5px;border-radius:50%;background:#5fbc8a;box-shadow:0 0 8px #5fbc8a;vertical-align:middle}h1{margin:20px 0 4px;font-size:22px;letter-spacing:.16em;color:#d7ffe9}"
+              ".subtitle{margin:0 0 18px;color:#78968a;font-size:12px;line-height:1.6}.label{display:block;margin:16px 0 5px;color:#5fbc8a;font-size:11px;letter-spacing:.12em}"
+              "input,button{width:100%;font:inherit;font-size:14px;border-radius:7px}input{padding:12px;border:1px solid #315044;background:#0b1c16;color:#fff;outline:none}input:focus{border-color:#5fbc8a;box-shadow:0 0 0 2px #5fbc8a33}"
+              "button{margin-top:9px;padding:12px;border:1px solid #5fbc8a;background:#1c6b45;color:#f0fff7;font-weight:700;letter-spacing:.08em;box-shadow:inset 0 1px #76d39c;cursor:pointer}button:active{transform:translateY(1px);box-shadow:none}"
+              ".saved{margin:22px 0 8px;padding-top:14px;border-top:1px dashed #294239}.saved-title{color:#5fbc8a;font-size:11px;letter-spacing:.12em}.empty{color:#78968a;font-size:12px}.network{margin-top:7px}.network button{margin-top:0;background:#13251e;border-color:#315044;box-shadow:none;text-align:left;color:#d7ffe9;font-weight:400;letter-spacing:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}"
+              ".actions{margin-top:20px;padding-top:14px;border-top:1px solid #294239}.actions button{background:#182d25}.actions form:last-child button{border-color:#745c28;background:#342d18;color:#ffe9a8;box-shadow:none}.foot{margin:17px 0 0;color:#526e63;font-size:10px;line-height:1.6;text-align:center}"
+              ".feet{height:8px;width:90px;margin:10px auto 0;border-radius:0 0 8px 8px;background:#10161b}"
+              "</style></head><body><main class=device><div class=speaker></div><section class=screen>"
+              "<div class=top><span><i class=led></i>ONLINE</span><span>SETUP / 01</span></div>"
+              "<h1>NEOSTICK</h1><p class=subtitle>POCKET NETWORK CONSOLE<br>LOCAL CONTROL INTERFACE</p>"
+              "<form method=POST action=/save><label class=label>NEW NETWORK</label>"
+              "<input name=ssid maxlength=32 placeholder=NETWORK required>"
+              "<input name=pass maxlength=64 type=password placeholder=PASSWORD>"
+              "<button type=submit>SAVE TO DEVICE</button></form>");
 
-    page += F("<p><small>SAVED</small></p>");
+    page += F("<div class=saved><div class=saved-title>SAVED NETWORKS</div>");
     if (savedCount == 0) {
-        page += F("<p><small>None yet.</small></p>");
+        page += F("<p class=empty>NO NETWORKS STORED</p>");
     }
     for (int i = 0; i < savedCount; i++) {
-        page += F("<form method=POST action=/forget><input type=hidden name=i value=");
+        page += F("<form class=network method=POST action=/forget><input type=hidden name=i value=");
         page += i;
-        page += F("><button type=submit>FORGET ");
+        page += F("><button type=submit>FORGET / ");
         appendEscaped(page, savedNets[i].ssid);
         page += F("</button></form>");
     }
 
-    page += F("<form method=POST action=/connect><button type=submit>CONNECT STRONGEST</button></form>");
+    page += F("</div><div class=actions><form method=POST action=/connect><button type=submit>CONNECT STRONGEST</button></form>");
     page += bleBeacon
         ? F("<form method=POST action=/beacon><button type=submit>BEACON OFF</button></form>")
         : F("<form method=POST action=/beacon><button type=submit>BEACON ON</button></form>");
-    page += F("<form method=POST action=/reboot><button type=submit>REBOOT</button></form>"
-              "<p><small>Join the open network NEOSTICK, then this page opens.</small></p>"
-              "</body></html>");
+    page += F("<form method=POST action=/reboot><button type=submit>REBOOT DEVICE</button></form>"
+              "</div><p class=foot>JOIN OPEN NETWORK NEOSTICK<br>192.168.4.1 / NO PASSWORD</p>"
+              "</section><div class=feet></div></main></body></html>");
     portalServer.send(200, "text/html", page);
 }
 
@@ -84,8 +91,8 @@ void handlePortalSave() {
     Serial.print("Saved network from setup page: ");
     Serial.println(ssid);
     portalServer.send(200, "text/html",
-        "<!DOCTYPE html><html><body style=background:#000;color:#d7ffe9;font-family:sans-serif;padding:16px>"
-        "<h1>SAVED</h1><p>Password stored on the device.</p><a href=/>Back</a></body></html>");
+        "<!DOCTYPE html><html><meta name=viewport content=\"width=device-width,initial-scale=1\"><style>body{margin:0;padding:24px;background:#10161b;color:#d7ffe9;font:14px monospace;text-align:center}main{max-width:360px;margin:auto;padding:32px 20px;border:1px solid #52616a;border-radius:20px;background:#07120f;box-shadow:0 12px 30px #050708}h1{color:#5fbc8a;letter-spacing:.16em}p{color:#78968a;line-height:1.6}a{display:block;margin-top:24px;padding:12px;border:1px solid #5fbc8a;border-radius:7px;color:#d7ffe9;text-decoration:none}</style><main>"
+        "<h1>SAVED</h1><p>Password stored on the device.</p><a href=/>RETURN TO CONSOLE</a></main></html>");
 }
 
 void handlePortalForget() {
@@ -101,8 +108,8 @@ void handlePortalConnect() {
     }
     portalJoin = true;
     portalServer.send(200, "text/html",
-        "<!DOCTYPE html><html><body style=background:#000;color:#d7ffe9;font-family:sans-serif;padding:16px>"
-        "<h1>JOINING</h1><p>The setup network will close. Reconnect your phone to your own Wi-Fi.</p></body></html>");
+        "<!DOCTYPE html><meta name=viewport content=\"width=device-width,initial-scale=1\"><style>body{margin:0;padding:24px;background:#10161b;color:#d7ffe9;font:14px monospace;text-align:center}main{max-width:360px;margin:auto;padding:32px 20px;border:1px solid #52616a;border-radius:20px;background:#07120f;box-shadow:0 12px 30px #050708}h1{color:#fdc84b;letter-spacing:.16em}p{color:#78968a;line-height:1.6}</style><main>"
+        "<h1>JOINING</h1><p>The setup network will close. Reconnect your phone to your own Wi-Fi.</p></main></html>");
 }
 
 void handlePortalBeacon() {
