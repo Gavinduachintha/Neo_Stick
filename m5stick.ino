@@ -9,6 +9,7 @@
 #include <esp_system.h>
 #include <esp_mac.h>
 #include <driver/rtc_io.h>
+#include <SD.h>
 #include "vendors.h"
 
 // =====================================================
@@ -19,6 +20,10 @@
 #define TFT_RST  4
 #define TFT_DC   5
 #define TFT_CS   6
+
+// SD card shares SCLK/MOSI with the display
+#define SD_MISO  8
+#define SD_CS    44
 
 // Button pin (adjust to your actual button pin)
 #define BTN_PIN  1
@@ -59,6 +64,7 @@ MenuItem menuItems[] = {
     {"WIFI",     "2.4 GHZ LINK",  GREEN},
     {"BLE",      "SCAN / BEACON", AMBER},
     {"TIMER",    "LAP / COUNTDOWN", CYAN},
+    {"SD CARD",  "FILE BROWSER",  AMBER},
     {"SETTINGS", "DEVICE SETUP",  WHITE},
     {"SYSTEM",   "DIAGNOSTICS",   DIM_GREEN},
     {"ABOUT",    "BUILD INFO",    GRAY}
@@ -110,7 +116,9 @@ enum Screen : uint8_t {
     SCREEN_TIMER_SETUP,
     SCREEN_TIMER_RUN,
     SCREEN_SETTINGS,
-    SCREEN_SYSTEM
+    SCREEN_SYSTEM,
+    SCREEN_SD,
+    SCREEN_SD_VIEW
 };
 
 Screen screen = SCREEN_MENU;
@@ -129,6 +137,7 @@ const char* bleMenuNames[] = {"SCAN DEVICES", "BEACON", "REMOTE", "BACK"};
 const int bleMenuCount = sizeof(bleMenuNames) / sizeof(bleMenuNames[0]);
 int bleMenuIndex = 0;
 bool bleBeacon = false;
+bool sdMounted = false;
 
 const int SCAN_MAX = 12;
 const int SCAN_PAGE = 5;
@@ -332,7 +341,7 @@ void drawCenteredNote(const char* title, const char* detail, uint16_t color) {
 const int HOME_LIST_X = 6;
 const int HOME_LIST_Y = 18;
 const int HOME_LIST_W = 104;
-const int HOME_ROW_H  = 14;
+const int HOME_ROW_H  = 12;
 
 const int HOME_CARD_X = 116;
 const int HOME_CARD_Y = 18;
@@ -353,7 +362,7 @@ void drawHomeList() {
         }
 
         tft.setTextColor(on ? WHITE : GRAY);
-        tft.setCursor(HOME_LIST_X + 10, y + 3);
+        tft.setCursor(HOME_LIST_X + 10, y + (HOME_ROW_H - 10) / 2 + 1);
         tft.print(menuItems[i].name);
     }
 }
@@ -396,14 +405,18 @@ void drawHomeCard() {
             statusColor = timerBusy() ? GREEN : GRAY;
             break;
         case 4:
+            status = sdMounted ? "CARD IN" : "NO CARD";
+            statusColor = sdMounted ? GREEN : GRAY;
+            break;
+        case 5:
             status = settingsBlurb();
             statusColor = (sleepIndex == 0) ? GRAY : AMBER;
             break;
-        case 5:
+        case 6:
             status = "LIVE";
             statusColor = DIM_GREEN;
             break;
-        case 6:
+        case 7:
             status = FW_VERSION;
             statusColor = DIM_GREEN;
             break;
@@ -593,12 +606,15 @@ void executeMenuItem(int index) {
             enterTimerMenu();
             break;
         case 4:
-            enterSettings();
+            enterSd();
             break;
         case 5:
-            enterSystem();
+            enterSettings();
             break;
         case 6:
+            enterSystem();
+            break;
+        case 7:
             about();
             break;
     }
@@ -617,11 +633,15 @@ void setup() {
     pinMode(SELECT_PIN, INPUT_PULLUP);
     pinMode(POWER_PIN, INPUT_PULLUP);
 
+    // Keep the card deselected so it ignores display traffic
+    pinMode(SD_CS, OUTPUT);
+    digitalWrite(SD_CS, HIGH);
+
     mySPI.begin(
         TFT_SCLK,
-        -1,
+        SD_MISO,
         TFT_MOSI,
-        TFT_CS
+        -1
     );
 
     tft.init(135, 240);
@@ -632,6 +652,7 @@ void setup() {
     tft.fillScreen(BG);
 
     loadSavedNets();
+    sdBegin();
 
     if (esp_reset_reason() == ESP_RST_DEEPSLEEP) {
         tft.setTextSize(2);
@@ -700,6 +721,8 @@ void handleNext() {
         settingsNext();
     } else if (screen == SCREEN_SYSTEM) {
         drawSystemRows();
+    } else if (screen == SCREEN_SD) {
+        sdNext();
     }
 }
 
@@ -759,6 +782,10 @@ void handleSelect() {
     } else if (screen == SCREEN_SYSTEM) {
         screen = SCREEN_MENU;
         drawMainMenu(true);
+    } else if (screen == SCREEN_SD) {
+        sdSelect();
+    } else if (screen == SCREEN_SD_VIEW) {
+        sdViewSelect();
     } else {
         executeMenuItem(currentMenuItem);
     }
@@ -771,6 +798,7 @@ void screenTick() {
     else if (screen == SCREEN_WIFI_PKTS) packetTick();
     else if (screen == SCREEN_SYSTEM) systemTick();
     else if (screen == SCREEN_WALKER) walkerTick();
+    else if (screen == SCREEN_SD_VIEW) sdImageTick();
     else if (screen == SCREEN_BLE_REMOTE || screen == SCREEN_BLE_REMOTE_MENU) remoteTick();
 }
 

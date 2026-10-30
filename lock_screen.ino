@@ -65,8 +65,10 @@ void drawLockClock(bool force) {
         tft.setCursor(LOCK_CLOCK_X, LOCK_CLOCK_Y);
         tft.print(hm);
 
-        tft.fillRect(0, LOCK_CLOCK_Y + 38, 240, 10, BG);
         tft.setTextSize(1);
+        int dateW = (int)strlen(date) * 6;
+        int dateX = (240 - dateW) / 2;
+        tft.fillRect(dateX - 2, LOCK_CLOCK_Y + 38, dateW + 4, 10, BG);
         printCentered(date, LOCK_CLOCK_Y + 38, ok ? GRAY : AMBER);
     }
 
@@ -141,7 +143,9 @@ void drawLockPanel() {
 }
 
 void drawLockScreen() {
-    tft.fillScreen(BG);
+    if (!drawBmpFile("/wall.bmp", 240, 135, true)) tft.fillScreen(BG);
+    tft.fillRect(0, 0, 240, 15, BG);
+    tft.fillRect(0, 118, 240, 17, BG);
     tft.setTextSize(1);
 
     tft.setTextColor(DIM_GREEN);
@@ -221,6 +225,11 @@ void redrawScreen(Screen s) {
             break;
         case SCREEN_SYSTEM:
             enterSystem();
+            break;
+        case SCREEN_SD:
+        case SCREEN_SD_VIEW:
+            if (sdMounted) drawSdBrowser();
+            else drawSdNoCard();
             break;
         case SCREEN_BLE_MENU:
             drawBleMiniMenu(true);
